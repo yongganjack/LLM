@@ -11,12 +11,11 @@ import sys
 import time
 import os
 from typing import List, Dict
-
+from config import API_KEY
 
 # ── 配置 ──────────────────────────────────────────────
 # DeepSeek API: https://platform.deepseek.com/api_keys
 API_BASE_URL = "https://api.deepseek.com/v1"
-from config import API_KEY
 MODEL_NAME = "deepseek-chat"         # deepseek-chat 或 deepseek-reasoner
 REQUEST_TIMEOUT = 60                  # 请求超时（秒）
 
