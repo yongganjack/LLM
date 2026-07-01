@@ -1,0 +1,235 @@
+{
+  "meta": {
+    "timestamp": "2026-07-01T17:45:41.129990",
+    "local_model": "llama3.2:1b",
+    "cloud_model": "deepseek-chat",
+    "total_cases": 5
+  },
+  "cases": [
+    {
+      "id": 1,
+      "title": "Zero-shot  vs  Few-shot",
+      "task": "情感分类: 判断句子情感倾向 (正面/负面)",
+      "variants": {
+        "simple": {
+          "label": "Zero-shot",
+          "system_prompt": "你是一个情感分析助手。",
+          "user_prompt": "判断以下句子的情感倾向（只回答'正面'或'负面'）：'等了两个小时才上菜，但是味道确实惊艳！'",
+          "local": {
+            "response": "负面",
+            "elapsed": 4.875865799998792,
+            "eval_count": 3,
+            "error": null
+          },
+          "cloud": {
+            "response": "正面",
+            "elapsed": 0.9267115999991802,
+            "prompt_tokens": 40,
+            "completion_tokens": 1,
+            "model": "deepseek-v4-flash",
+            "error": null
+          }
+        },
+        "engineered": {
+          "label": "Few-shot (3示例)",
+          "system_prompt": "你是一个情感分析助手。",
+          "user_prompt": "请判断句子的情感倾向，只回答'正面'或'负面'。\n\n示例1: '快递太慢了，包装还破了。' → 负面\n示例2: '性价比很高，会回购。' → 正面\n示例3: '虽然有点贵，但品质确实好。' → 正面\n\n现在判断: '等了两个小时才上菜，但是味道确实惊艳！' →",
+          "local": {
+            "response": "负面",
+            "elapsed": 2.906211200001053,
+            "eval_count": 3,
+            "error": null
+          },
+          "cloud": {
+            "response": "正面",
+            "elapsed": 0.9081716000000597,
+            "prompt_tokens": 94,
+            "completion_tokens": 1,
+            "model": "deepseek-v4-flash",
+            "error": null
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Standard  vs  Chain-of-Thought",
+      "task": "数学推理: 多步骤算术题",
+      "variants": {
+        "simple": {
+          "label": "直接回答",
+          "system_prompt": "你是一个数学助手，请直接给出答案。",
+          "user_prompt": "小明有5个苹果，给了小红2个，又买了3个，最后吃掉了1个。请问小明现在有几个苹果？",
+          "local": {
+            "response": "小明开始有 5 个苹果，给了小红 2 个，所以还剩下 5-2 = 3 个苹果。\n\n然后他又买了 3 个苹果，总共变成了 3+3 = 6 个苹果。\n\n最后，他吃掉了 1 个苹果，所以现在还剩下 6-1 = 5 个苹果。",
+            "elapsed": 4.471327199998996,
+            "eval_count": 79,
+            "error": null
+          },
+          "cloud": {
+            "response": "小明现在有5个苹果。",
+            "elapsed": 0.8785606999990705,
+            "prompt_tokens": 42,
+            "completion_tokens": 7,
+            "model": "deepseek-v4-flash",
+            "error": null
+          }
+        },
+        "engineered": {
+          "label": "Chain-of-Thought",
+          "system_prompt": "你是一个数学助手。",
+          "user_prompt": "小明有5个苹果，给了小红2个，又买了3个，最后吃掉了1个。请问小明现在有几个苹果？\n\n请逐步推理，每一步写出计算过程和中间结果，最后给出答案。",
+          "local": {
+            "response": "### 步骤 1：小明初始有 5 个苹果。\n\n```python\n小明的苹果数量 = 5\n```\n\n### 步骤 2：小明给了小红 2 个苹果。\n\n```python\n小明给小红 2 个苹果 = 小明的苹果数量 - 2\n小明的苹果数量 = 5 - 2\n小明的苹果数量 = 3\n```\n\n### 步骤 3：小明买了 3 个苹果。\n\n```python\n小明购买了 3 个苹果 = 小明的苹果数量 + 3\n小明的苹果数量 = 3 + 3\n小明的苹果数量 = 6\n```\n\n### 步骤 4：最后，小明吃掉 1 个苹果。\n\n```python\n小明吃掉 1 个苹果 = 小明的苹果数量 - 1\n小明的苹果数量 = 6 - 1\n小明的苹果数量 = 5\n```\n\n### 结论：\n\n小明现在有 5 个苹果。",
+            "elapsed": 8.408632700000453,
+            "eval_count": 233,
+            "error": null
+          },
+          "cloud": {
+            "response": "好的，我们一步一步地来推理。  \n\n**第一步：最初的数量**  \n小明一开始有 5 个苹果。  \n\n**第二步：给了小红 2 个**  \n5 - 2 = 3  \n现在小明剩下 3 个苹果。  \n\n**第三步：又买了 3 个**  \n3 + 3 = 6  \n现在小明有 6 个苹果。  \n\n**第四步：吃掉 1 个**  \n6 - 1 = 5  \n最后小明剩下 5 个苹果。  \n\n**最终答案：**  \n小明现在有 **5 个苹果**。",
+            "elapsed": 1.5176819000007526,
+            "prompt_tokens": 52,
+            "completion_tokens": 129,
+            "model": "deepseek-v4-flash",
+            "error": null
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "No-role  vs  Role-based",
+      "task": "技术概念解释: 什么是 REST API",
+      "variants": {
+        "simple": {
+          "label": "无角色设定",
+          "system_prompt": "请用中文回答。",
+          "user_prompt": "什么是 REST API？",
+          "local": {
+            "response": "REST（Representational State of Resource）是一种应用程序架构，基于HTTP协议的RESTful APIs（资源相关API）。它是一种松散的、动态的、可伸缩的网络服务框架，使得开发者可以在不需要重新实现整个网络实体的情况下，以标准化的方式使用和传递数据。\n\n每个API都有一个明确的资源，例如一个Web应用程序上的资源，如用户信息、图像或视频。API提供一个标准化的方式来操作这些资源，因此开发人员可以通过标准化的方法创建、读取、更新或删除资源。\n\nRESTful APIs是一种基于HTTP协议的API，这使得开发者可以使用标准的http verbs（GET, POST, PUT, DELETE）来访问和操作资源。每个资源都有一个明确的 URI（Uniform Resource Identifier），这个URI指示了如何访问到该资源。\n\n例如，用户信息的一个资源的 URI Might be `/users/{userId}`。在这个例子中，{userId} 是一个变量，表示当前用户的ID。这是一种标准化的方式来操作资源，因为开发者知道了哪个 ресурс是什么，以及它是如何被访问到的。",
+            "elapsed": 8.706965299999865,
+            "eval_count": 255,
+            "error": null
+          },
+          "cloud": {
+            "response": "**REST API**（表述性状态传递应用程序接口）是一种基于 **REST**（Representational State Transfer）架构风格的网络接口设计规范。它利用 HTTP 协议的标准方法（如 GET、POST、PUT、DELETE）来操作资源，通常以 JSON 或 XML 格式交换数据。\n\n### 核心特点\n1. **无状态**：每个请求包含所有必要信息，服务器不保存客户端上下文。\n2. **资源导向**：通过 URL（统一资源定位符）标识资源（如 `/users/123`）。\n3. **标准方法**：\n   - `GET`：获取资源\n   - `POST`：创建资源\n   - `PUT`：更新资源\n   - `DELETE`：删除资源\n4. **统一接口**：使用 HTTP 状态码（如 200 成功、404 未找到）表示结果。\n\n### 示例\n- 请求：`GET https://api.example.com/users/1`\n- 响应：`{ \"id\": 1, \"name\": \"张三\", \"email\": \"zhangsan@example.com\" }`\n\n### 优点\n- 简单易用，基于 HTTP 协议，无需额外工具。\n- 可",
+            "elapsed": 2.9322128999992856,
+            "prompt_tokens": 13,
+            "completion_tokens": 256,
+            "model": "deepseek-v4-flash",
+            "error": null
+          }
+        },
+        "engineered": {
+          "label": "角色: 资深后端工程师",
+          "system_prompt": "你是一位有10年经验的资深后端工程师。现在你要给刚入职的实习生解释技术概念。请用通俗易懂的语言，配合生活化的类比，最多150字。",
+          "user_prompt": "什么是 REST API？",
+          "local": {
+            "response": "REST（Representational State of Resource）API是一种应用程序接口规范，允许我们让不同的应用程序或服务能够相互交流信息并访问资源。\n\n比如，你想在一个网站上搜索某个文章的内容。你可以使用REST APIs，通过给出一个URL和一些参数来访问该页面，从而获得所需的内容。同样，一个API也可能提供数据，讓你可以在不同的应用程序中使用它。",
+            "elapsed": 4.954462699999567,
+            "eval_count": 97,
+            "error": null
+          },
+          "cloud": {
+            "response": "想象你去餐厅吃饭。REST API 就像菜单——上面列出了你能点的菜（请求），厨师按菜单做菜（处理），然后端给你（返回结果）。你不用进厨房，只需遵守菜单规则。API就是程序之间的“菜单”，REST是设计菜单的标准方式。",
+            "elapsed": 2.362735300001077,
+            "prompt_tokens": 44,
+            "completion_tokens": 59,
+            "model": "deepseek-v4-flash",
+            "error": null
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Plain  vs  Structured Output",
+      "task": "信息提取: 从句子中提取结构化信息",
+      "variants": {
+        "simple": {
+          "label": "普通文本输出",
+          "system_prompt": "你是一个信息提取助手。",
+          "user_prompt": "从以下句子中提取姓名和年龄：'张三今年28岁，在北京工作，职位是软件工程师。'",
+          "local": {
+            "response": "从给定的句子中，我可以提取的信息包括：\n\n* 姓氏：张\n* 年龄：28岁\n* occupations：\n * 名称：三\n * 职位：软件工程师\n * 地址：北京",
+            "elapsed": 3.799377800000002,
+            "eval_count": 52,
+            "error": null
+          },
+          "cloud": {
+            "response": "姓名：张三，年龄：28岁。",
+            "elapsed": 0.6980534000012995,
+            "prompt_tokens": 34,
+            "completion_tokens": 9,
+            "model": "deepseek-v4-flash",
+            "error": null
+          }
+        },
+        "engineered": {
+          "label": "JSON 格式约束",
+          "system_prompt": "你是一个信息提取助手。请始终以 JSON 格式输出。",
+          "user_prompt": "从以下句子中提取姓名、年龄、城市和职位信息。请用严格的 JSON 格式输出，不要包含其他内容：\n\n句子: '张三今年28岁，在北京工作，职位是软件工程师。'\n\n输出格式: {\"name\": \"...\", \"age\": ..., \"city\": \"...\", \"title\": \"...\"}",
+          "local": {
+            "response": "```\n{\n  \"name\": \"张三\",\n  \"age\": 28,\n  \"city\": \"北京\",\n  \"title\": \"软件工程师\"\n}\n```",
+            "elapsed": 3.602912699998342,
+            "eval_count": 37,
+            "error": null
+          },
+          "cloud": {
+            "response": "{\"name\": \"张三\", \"age\": 28, \"city\": \"北京\", \"title\": \"软件工程师\"}",
+            "elapsed": 0.9086995000016032,
+            "prompt_tokens": 85,
+            "completion_tokens": 25,
+            "model": "deepseek-v4-flash",
+            "error": null
+          }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Vague  vs  Detailed System Prompt",
+      "task": "创意写作: 写一首关于编程的诗",
+      "variants": {
+        "simple": {
+          "label": "无系统提示",
+          "system_prompt": "",
+          "user_prompt": "写一首关于编程的诗。",
+          "local": {
+            "response": "在计算机的世界里，代码是我们存在的根源\n以数字为基数，呈现出明确的形状\n每行一行，像小字一样排列\n编程者的心灵，注目于后下文\n\n程序是我们的创造力，展现了我们的想法\n一种独特的语言，能让世界相互联系\n从算术到生物学，代码在我们手中流动\n编程的力量，不能被任何thing阻止",
+            "elapsed": 4.884558099998685,
+            "eval_count": 109,
+            "error": null
+          },
+          "cloud": {
+            "response": "## 《代码的语法》\n\n在括号的密林里\n我种下分号\n它们排列成\n未完成的船\n\n光标是唯一的萤火\n在深蓝的河床\n数着\n未闭合的句子\n\n某个变量名\n在循环中发芽\n长成透明的藤蔓\n缠绕着\n最底层的逻辑\n\n我打开\n所有注释的抽屉\n发现曾经写下的月光\n正安静地\n等待编译",
+            "elapsed": 2.6368029000004753,
+            "prompt_tokens": 10,
+            "completion_tokens": 91,
+            "model": "deepseek-v4-flash",
+            "error": null
+          }
+        },
+        "engineered": {
+          "label": "详细约束 (五言绝句+押韵)",
+          "system_prompt": "你是一位精通中国古典诗词的诗人。请用五言绝句的格式创作（每句5个字，共4句）。必须押韵（第二句和第四句末尾字押韵）。主题围绕编程。只输出诗，不要解释。",
+          "user_prompt": "写一首关于编程的诗。",
+          "local": {
+            "response": "程序的美丽在代码中,\n执行的语句让心动跳跃,\n计算机世界的新道德,\n编程人生的无限 Possibility。\n代码的韵律,我所爱.",
+            "elapsed": 3.902058300000135,
+            "eval_count": 47,
+            "error": null
+          },
+          "cloud": {
+            "response": "键盘敲夜半，代码写晨光。  \n逻辑织成网，云端梦正香。",
+            "elapsed": 1.1698355999997148,
+            "prompt_tokens": 63,
+            "completion_tokens": 21,
+            "model": "deepseek-v4-flash",
+            "error": null
+          }
+        }
+      }
+    }
+  ]
+}
