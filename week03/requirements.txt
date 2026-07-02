@@ -1,0 +1,19 @@
+# week03 — CLI 中文问答助手 依赖
+# 安装: pip install -r requirements.txt
+
+requests>=2.28.0
+
+# ── 本地模型 (Ollama, 默认使用 CPU 推理) ──
+# 1. 安装 Ollama: https://ollama.com/download
+# 2. 拉取模型:   ollama pull llama3.2:1b
+# 3. 启动服务:   ollama serve
+# 4. 验证:       ollama list
+# CPU 推理配置: 代码中 LOCAL_NUM_GPU = 0 强制 CPU 推理
+
+# ── 云端模型 (DeepSeek) 需要在 ../config.py 中配置 API_KEY ──
+
+# ── 后续 LangChain 迁移时追加以下依赖 (当前暂不需要) ──
+# langchain>=0.3.0
+# langchain-openai>=0.2.0
+# langchain-deepseek>=0.1.0
+# langchain-ollama>=0.1.0
