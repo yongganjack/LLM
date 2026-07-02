@@ -60,6 +60,7 @@ prompt = ChatPromptTemplate.from_messages([
 | **max_tokens** | `DEFAULT_MAX_TOKENS` / `-m` | `1024` | 最大输出 token 数 | Cloud: `model.bind(max_tokens=1024)`, Local: `model.bind(num_predict=1024)` |
 | **stream** | `--stream` | `False` | 流式逐字输出 | `model.stream(messages)` |
 | **provider** | `DEFAULT_PROVIDER` / `-p` | `local` | 模型后端选择 | `ChatOllama` vs `ChatDeepSeek` 实例切换 |
+| **device** | `DEFAULT_DEVICE` / `-d` | `gpu` | 本地推理设备 (`gpu`/`cpu`) | `ChatOllama(num_gpu=-1)` vs `ChatOllama(num_gpu=0)` |
 | **role** | `--role` / `-r` | `default` | 角色预设 | `ChatPromptTemplate` 切换 |
 | **system** | `--system` / `-s` | `None` | 自定义 system prompt | 直接传给 `ChatPromptTemplate` |
 | **save** | `--save` | `None` | 保存到文件 | 无关 (输出层逻辑) |
@@ -76,7 +77,9 @@ prompt = ChatPromptTemplate.from_messages([
 
 | 参数 | 当前值 | 说明 |
 |------|--------|------|
-| `LOCAL_NUM_GPU` | `0` | 强制 CPU 推理 (不加载 GPU 层) |
+| `DEFAULT_DEVICE` | `"gpu"` | 推理设备: `gpu` (GPU加速, 默认) / `cpu` (纯CPU) |
+| `DEVICE_NUM_GPU["cpu"]` | `0` | CPU 模式: 不加载任何 GPU 层 |
+| `DEVICE_NUM_GPU["gpu"]` | `-1` | GPU 模式: 自动加载全部 GPU 层 |
 | `LOCAL_NUM_THREAD` | `None` | CPU 线程数 (None = 自动) |
 | `REQUEST_TIMEOUT` | `60` | 请求超时秒数 |
 
@@ -85,11 +88,20 @@ prompt = ChatPromptTemplate.from_messages([
 ```python
 from langchain_ollama import ChatOllama
 
-model = ChatOllama(
+# GPU 加速 (默认)
+model_gpu = ChatOllama(
     model="llama3.2:1b",
     temperature=0.7,
     num_predict=1024,
-    num_gpu=0,          # CPU 推理
+    num_gpu=-1,           # 自动加载全部 GPU 层
+)
+
+# CPU 推理
+model_cpu = ChatOllama(
+    model="llama3.2:1b",
+    temperature=0.7,
+    num_predict=1024,
+    num_gpu=0,            # 纯 CPU
 )
 ```
 
@@ -129,7 +141,7 @@ Stage 3: 输出处理
 | `call_api_stream()` | ~368 | 流式调用分发 | `model.stream(messages)` |
 | `interactive_session()` | ~600+ | 多轮对话循环 | `RunnableWithMessageHistory` |
 | `single_shot()` | ~550+ | 单次问答 | `chain.invoke({"question": q})` |
-| `handle_session_command()` | ~202 | 会话指令解析 | 自定义 Tool / 或直接切模型实例 |
+| `handle_session_command()` | ~202 | 会话指令解析 (`/provider`, `/device`, `/role` 等) | 自定义 Tool / 或直接切模型实例 |
 | `safe_invoke_*()` | ~533 | 错误处理包装 | `chain.with_fallbacks([...])` |
 
 ---
@@ -190,13 +202,14 @@ from langchain_ollama import ChatOllama
 from langchain_deepseek import ChatDeepSeek
 
 # ── 模型工厂 ──
-def get_model(provider: str, temperature: float, max_tokens: int):
+def get_model(provider: str, temperature: float, max_tokens: int, device: str = "gpu"):
     if provider == "local":
+        num_gpu = -1 if device == "gpu" else 0   # gpu=-1 (auto), cpu=0
         return ChatOllama(
             model="llama3.2:1b",
             temperature=temperature,
             num_predict=max_tokens,
-            num_gpu=0,  # CPU 推理
+            num_gpu=num_gpu,
         )
     else:
         return ChatDeepSeek(
@@ -215,14 +228,17 @@ def get_prompt(role: str, custom_system: str | None = None):
     ])
 
 # ── Chain ──
-def build_chain(provider, role, temperature, max_tokens):
+def build_chain(provider, role, temperature, max_tokens, device="gpu"):
     prompt = get_prompt(role)
-    model = get_model(provider, temperature, max_tokens)
+    model = get_model(provider, temperature, max_tokens, device)
     return prompt | model | StrOutputParser()
 
 # 使用
-chain = build_chain("local", "teacher", 0.7, 1024)
-result = chain.invoke({"question": "什么是机器学习？"})
+chain_cpu = build_chain("local", "teacher", 0.7, 1024, device="cpu")
+result = chain_cpu.invoke({"question": "什么是机器学习？"})
+
+chain_gpu = build_chain("local", "teacher", 0.7, 1024, device="gpu")
+result = chain_gpu.invoke({"question": "什么是机器学习？"})
 ```
 
 ### 5.2 多轮对话 (带历史记忆)
@@ -273,7 +289,7 @@ for chunk in chain.stream({"question": "写一首诗"}):
 | 1 | `ROLE_PROMPTS` → `ChatPromptTemplate` × 5 | qa_assistant.py | 5 个模板，含 system + human 占位 |
 | 2 | `DEFAULT_TEMPERATURE` / `DEFAULT_MAX_TOKENS` → model 构造参数 | qa_assistant.py | 直接传给 `ChatOllama` / `ChatDeepSeek` |
 | 3 | `DEFAULT_PROVIDER = "local"` → `get_model()` 工厂函数 | qa_assistant.py | 返回对应实例 |
-| 4 | `LOCAL_NUM_GPU = 0` → `ChatOllama(num_gpu=0)` | qa_assistant.py | 保留 CPU 推理 |
+| 4 | `DEVICE_NUM_GPU` + `--device` → `get_model(device="cpu"|"gpu")` | qa_assistant.py | CPU/GPU 双设备 |
 | 5 | `build_messages()` → `prompt.invoke()` | qa_assistant.py | 移除手动拼接 |
 | 6 | `build_payload()` / `call_api()` → `model.invoke()` | qa_assistant.py | 移除手动 HTTP 调用 |
 | 7 | `call_api_stream()` → `model.stream()` | qa_assistant.py | 移除 SSE/JSON-lines 解析 |

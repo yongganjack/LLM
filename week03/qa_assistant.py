@@ -1,11 +1,12 @@
 """
-CLI 中文问答助手 — 支持本地 (Ollama, CPU推理) + 云端 (DeepSeek) 双后端
+CLI 中文问答助手 — 支持本地 (Ollama, CPU/GPU) + 云端 (DeepSeek) 双后端
 
 特性:
   - 单次问答: 命令行直接传入问题
   - 连续对话: 不传问题参数则进入交互模式, 保持多轮对话上下文
-  - 双后端: 默认使用本地 Ollama (CPU), --provider cloud 切换 DeepSeek API
-  - 会话指令: /role /clear /save /stream /provider /help 等
+  - 双后端: 默认使用本地 Ollama (GPU), --provider cloud 切换 DeepSeek API
+  - 本地双设备: --device gpu 启用GPU加速, --device cpu 纯CPU推理
+  - 会话指令: /role /clear /save /stream /provider /device /help 等
 
 三阶段流水线 (为 LangChain 迁移而设计):
   Stage 1 — 输入处理:  命令行参数解析 → 输入校验 → 提示词模板构建
@@ -13,9 +14,13 @@ CLI 中文问答助手 — 支持本地 (Ollama, CPU推理) + 云端 (DeepSeek) 
   Stage 3 — 输出处理:  格式化打印 + token 统计 + 可选存档
 
 使用方式:
-  # 本地 Ollama (默认, CPU推理)
+  # 本地 Ollama (默认, GPU加速)
   python qa_assistant.py "什么是机器学习？"
   python qa_assistant.py --stream --role teacher "解释 REST API"
+
+  # 本地 Ollama (CPU 推理)
+  python qa_assistant.py -d cpu "什么是机器学习？"
+  python qa_assistant.py -d cpu --stream "写一首关于春天的诗"
 
   # 云端 DeepSeek
   python qa_assistant.py -p cloud "什么是机器学习？"
@@ -49,17 +54,21 @@ from config import API_KEY
 CLOUD_API_BASE = "https://api.deepseek.com/v1"
 CLOUD_MODEL = "deepseek-chat"
 
-# ── 本地 Ollama (CPU 推理) ──
+# ── 本地 Ollama ──
 LOCAL_API_BASE = "http://localhost:11434"
 LOCAL_MODEL = "llama3.2:1b"            # 与 ollama list 一致
-LOCAL_NUM_GPU = 0                       # 0 = 强制 CPU 推理 (不加载 GPU 层)
 LOCAL_NUM_THREAD = None                 # None = 自动; 设为数字可指定 CPU 线程数
+DEFAULT_DEVICE = "gpu"                  # cpu | gpu  (本地推理设备, 默认GPU)
+DEVICE_NUM_GPU = {                      # device → Ollama num_gpu 映射
+    "cpu": 0,                           #   0 = 不加载任何 GPU 层 → 纯 CPU
+    "gpu": -1,                          #  -1 = 自动加载全部 GPU 层
+}
 
 # ── 通用 ──
 REQUEST_TIMEOUT = 60
 DEFAULT_TEMPERATURE = 0.7
 DEFAULT_MAX_TOKENS = 1024
-DEFAULT_PROVIDER = "local"             # cloud | local (默认本地 CPU 推理)
+DEFAULT_PROVIDER = "local"             # cloud | local (默认本地 GPU 推理)
 
 # ── 后端元信息 ──
 PROVIDER_INFO = {
@@ -110,9 +119,13 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
-  # 本地 Ollama (默认, CPU推理)
+  # 本地 Ollama (默认, GPU加速)
   python qa_assistant.py "什么是机器学习？"
   python qa_assistant.py --stream --role teacher "解释量子计算"
+
+  # 本地 Ollama (CPU 推理)
+  python qa_assistant.py -d cpu "什么是机器学习？"
+  python qa_assistant.py -d cpu --stream "写一首关于春天的诗"
 
   # 云端 DeepSeek
   python qa_assistant.py -p cloud "什么是机器学习？"
@@ -131,6 +144,11 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         "--provider", "-p", type=str, default=DEFAULT_PROVIDER,
         choices=["cloud", "local"],
         help=f"模型后端: cloud=DeepSeek API, local=Ollama 本地 (默认: {DEFAULT_PROVIDER})",
+    )
+    parser.add_argument(
+        "--device", "-d", type=str, default=DEFAULT_DEVICE,
+        choices=["cpu", "gpu"],
+        help=f"本地推理设备: cpu=CPU推理, gpu=GPU加速 (仅 local 后端有效, 默认: {DEFAULT_DEVICE})",
     )
     parser.add_argument(
         "--role", "-r", type=str, default="default",
@@ -174,15 +192,16 @@ def validate_input(question: Optional[str]) -> str:
 # ── 交互模式 banner ──
 _INTERACTIVE_BANNER = """
 ╔══════════════════════════════════════════════════════════╗
-║       CLI 中文问答助手 (本地 Ollama CPU + 云端 DeepSeek)  ║
+║     CLI 中文问答助手 (本地 Ollama CPU/GPU + 云端 DeepSeek) ║
 ║                                                        ║
 ║   直接输入问题即可开始对话，模型会记住上下文。               ║
-║   默认使用本地模型 (CPU推理)。                             ║
+║   默认使用本地模型 (GPU加速), -d cpu 切换 CPU 推理。       ║
 ║   会话指令:                                              ║
 ║     /help      显示帮助     /role <name>  切换角色        ║
 ║     /stream    切换流式     /clear        清空上下文       ║
-║     /provider  切换后端     /save         保存记录         ║
-║     /stats     查看统计     q/quit/exit   退出对话         ║
+║     /provider  切换后端     /device       切换CPU/GPU     ║
+║     /save      保存记录     /stats        查看统计         ║
+║     q/quit/exit  退出对话                                ║
 ╚══════════════════════════════════════════════════════════╝"""
 
 
@@ -209,6 +228,7 @@ def handle_session_command(
     system: Optional[str],
     stream: bool,
     provider: str,
+    device: str,
     messages: List[Dict[str, str]],
     session_stats: dict,
 ) -> dict:
@@ -275,6 +295,20 @@ def handle_session_command(
         print(f"[OK] 流式输出已切换为: {'ON' if stream else 'OFF'}")
         return {"action": "skip", "stream": stream}
 
+    if cmd == "/device":
+        new_device = arg.strip().lower()
+        if new_device in DEVICE_NUM_GPU:
+            device = new_device
+            label = "GPU 加速" if device == "gpu" else "纯 CPU"
+            print(f"[OK] 本地推理设备已切换为: {label}")
+        elif not new_device:
+            current_label = "GPU 加速" if device == "gpu" else "纯 CPU"
+            print(f"[INFO] 当前设备: {current_label}")
+            print(f"[HELP] 可用设备: cpu, gpu (仅 local 后端有效)")
+        else:
+            print(f"[ERROR] 未知设备 '{new_device}'。可用: cpu, gpu")
+        return {"action": "skip", "device": device}
+
     if cmd == "/clear":
         sys_msg = messages[0] if messages and messages[0]["role"] == "system" else None
         messages = [sys_msg] if sys_msg else []
@@ -326,6 +360,19 @@ def build_system_prompt(role: str, custom_system: Optional[str] = None) -> str:
     return ROLE_PROMPTS.get(role, ROLE_PROMPTS["default"])
 
 
+def _print_status_line(provider: str, role: str, system: Optional[str],
+                       stream: bool, device: str, temperature: float,
+                       max_tokens: int) -> None:
+    """打印当前会话状态的紧凑摘要行 — 每次 / 指令切换后调用"""
+    info = PROVIDER_INFO.get(provider, {})
+    device_label = "GPU" if device == "gpu" else "CPU"
+    role_label = f"自定义:{system[:20]}..." if system else role
+    stream_label = "ON" if stream else "OFF"
+    print(f"  [STATUS] 后端: {info.get('label', provider)} | "
+          f"设备: {device_label} | 角色: {role_label} | "
+          f"流式: {stream_label} | T: {temperature} | Max: {max_tokens}")
+
+
 def build_messages(question: str, system_prompt: str) -> List[Dict[str, str]]:
     """构建标准的 OpenAI 兼容消息列表 (单次模式用)"""
     return [
@@ -349,13 +396,14 @@ def build_payload(
     temperature: float = DEFAULT_TEMPERATURE,
     max_tokens: int = DEFAULT_MAX_TOKENS,
     stream: bool = False,
+    device: str = DEFAULT_DEVICE,
 ) -> dict:
     """构建请求体 — 按 provider 生成对应格式
 
     LangChain 等价物: model.bind(temperature=..., max_tokens=...)
     """
     if provider == "local":
-        return _build_local_payload(messages, temperature, max_tokens, stream)
+        return _build_local_payload(messages, temperature, max_tokens, stream, device)
     else:
         return _build_cloud_payload(messages, temperature, max_tokens, stream)
 
@@ -461,12 +509,17 @@ def _build_local_payload(
     temperature: float,
     max_tokens: int,
     stream: bool,
+    device: str = DEFAULT_DEVICE,
 ) -> dict:
-    """Ollama /api/chat 请求体 (OpenAI 兼容 messages 格式, CPU 推理)"""
+    """Ollama /api/chat 请求体 (OpenAI 兼容 messages 格式)
+
+    device: "cpu" → num_gpu=0 (纯CPU); "gpu" → num_gpu=-1 (自动加载全部GPU层)
+    """
+    num_gpu = DEVICE_NUM_GPU.get(device, 0)
     options = {
         "temperature": temperature,
         "num_predict": max_tokens,
-        "num_gpu": LOCAL_NUM_GPU,           # 0 = 强制 CPU 推理
+        "num_gpu": num_gpu,
     }
     if LOCAL_NUM_THREAD is not None:
         options["num_thread"] = LOCAL_NUM_THREAD
@@ -644,6 +697,7 @@ def interactive_session(
     max_tokens: int = DEFAULT_MAX_TOKENS,
     stream: bool = False,
     no_echo: bool = False,
+    device: str = DEFAULT_DEVICE,
 ) -> int:
     """
     [交互模式] 连续对话循环
@@ -662,7 +716,9 @@ def interactive_session(
     info = PROVIDER_INFO.get(provider, {})
 
     print(_INTERACTIVE_BANNER)
-    print(f"[INFO] 后端: {info.get('label', provider)} ({info.get('model', '?')})")
+    device_label = f"GPU" if device == "gpu" else "CPU"
+    print(f"[INFO] 后端: {info.get('label', provider)} ({info.get('model', '?')})  |  "
+          f"设备: {device_label}")
     print(f"[INFO] 角色: {'自定义' if system else role}  |  "
           f"流式: {'ON' if stream else 'OFF'}  |  "
           f"Temperature: {temperature}  |  Max Tokens: {max_tokens}")
@@ -680,26 +736,29 @@ def interactive_session(
             result = handle_session_command(
                 user_input,
                 role=role, system=system, stream=stream, provider=provider,
-                messages=messages, session_stats=session_stats,
+                device=device, messages=messages, session_stats=session_stats,
             )
             role = result.get("role", role)
             system = result.get("system", system)
             stream = result.get("stream", stream)
             provider = result.get("provider", provider)
+            device = result.get("device", device)
             messages = result.get("messages", messages)
             session_stats = result.get("session_stats", session_stats)
             if result.get("action") == "break":
                 break
-            # 切换后端时更新 info
-            if "provider" in result:
+            # 切换后端或设备时更新 info
+            if "provider" in result or "device" in result:
                 info = PROVIDER_INFO.get(provider, {})
+            _print_status_line(provider, role, system, stream, device,
+                               temperature, max_tokens)
             continue
 
         # --- 追加用户消息 ---
         messages.append({"role": "user", "content": user_input})
 
         # --- Stage 2: 模型调用 ---
-        payload = build_payload(messages, provider, temperature, max_tokens, stream)
+        payload = build_payload(messages, provider, temperature, max_tokens, stream, device)
 
         if stream:
             print(f"[{session_stats['turns'] + 1}] [A] ", end="")
@@ -757,6 +816,7 @@ def single_shot(
     stream: bool = False,
     save: Optional[str] = None,
     no_echo: bool = False,
+    device: str = DEFAULT_DEVICE,
 ) -> int:
     """
     [单次模式] 一问一答
@@ -765,7 +825,7 @@ def single_shot(
     """
     system_prompt = build_system_prompt(role, system)
     messages = build_messages(question, system_prompt)
-    payload = build_payload(messages, provider, temperature, max_tokens, stream)
+    payload = build_payload(messages, provider, temperature, max_tokens, stream, device)
 
     info = PROVIDER_INFO.get(provider, {})
 
@@ -827,7 +887,8 @@ def run(question: Optional[str] = None,
         max_tokens: int = DEFAULT_MAX_TOKENS,
         stream: bool = False,
         save: Optional[str] = None,
-        no_echo: bool = False) -> int:
+        no_echo: bool = False,
+        device: str = DEFAULT_DEVICE) -> int:
     """
     统一入口 — 按是否有 CLI 问题参数分流:
 
@@ -840,13 +901,13 @@ def run(question: Optional[str] = None,
         return single_shot(
             question=question, provider=provider, role=role, system=system,
             temperature=temperature, max_tokens=max_tokens,
-            stream=stream, save=save, no_echo=no_echo,
+            stream=stream, save=save, no_echo=no_echo, device=device,
         )
     else:
         return interactive_session(
             provider=provider, role=role, system=system,
             temperature=temperature, max_tokens=max_tokens,
-            stream=stream, no_echo=no_echo,
+            stream=stream, no_echo=no_echo, device=device,
         )
 
 
@@ -863,6 +924,7 @@ def main():
         stream=args.stream,
         save=args.save,
         no_echo=args.no_echo,
+        device=args.device,
     )
 
 
