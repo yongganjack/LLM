@@ -48,9 +48,8 @@ if sys.platform == "win32":
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore
 
 # ── LangChain 核心组件 ──────────────────────────────────
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, BaseMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, AIMessageChunk, BaseMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.output_parsers import StrOutputParser
 from langchain_ollama import ChatOllama
 from langchain_deepseek import ChatDeepSeek
 
@@ -114,6 +113,67 @@ ROLE_PROMPTS: Dict[str, str] = {
         "如果是中文翻译成英文，输出英文；反之输出中文。"
     ),
 }
+
+
+# ═══════════════════════════════════════════════════════════
+#  Token 用量提取 (Token Usage Extraction)
+# ═══════════════════════════════════════════════════════════
+
+def _extract_usage(response, provider: str) -> dict:
+    """从 AIMessage / AIMessageChunk 中提取 token 用量。
+
+    Ollama 将用量放在 ``response_metadata`` 中 (prompt_eval_count / eval_count)。
+    DeepSeek (OpenAI 兼容) 放在 ``response_metadata.token_usage`` 或 ``usage_metadata`` 中。
+    返回值: {"prompt": int, "completion": int, "total": int}，提取失败时返回全 0。
+    """
+    # 优先尝试 usage_metadata (LangChain 标准字段, 较新版本)
+    um = getattr(response, "usage_metadata", None) or {}
+    if um:
+        return {
+            "prompt":    um.get("input_tokens", 0),
+            "completion": um.get("output_tokens", 0),
+            "total":     um.get("total_tokens", 0),
+        }
+
+    # 回退到 response_metadata (各 provider 原始字段)
+    rm = getattr(response, "response_metadata", None) or {}
+
+    if provider == "local":
+        prompt_tok = rm.get("prompt_eval_count", 0)
+        comp_tok = rm.get("eval_count", 0)
+        return {
+            "prompt": prompt_tok,
+            "completion": comp_tok,
+            "total": prompt_tok + comp_tok,
+        }
+
+    # cloud (DeepSeek / OpenAI 兼容)
+    tu = rm.get("token_usage", {})
+    return {
+        "prompt":    tu.get("prompt_tokens", 0),
+        "completion": tu.get("completion_tokens", 0),
+        "total":     tu.get("total_tokens", 0),
+    }
+
+
+def _extract_finish_reason(response, provider: str) -> str:
+    """从 AIMessage 中提取结束原因, 提取失败时返回 "stop"。
+
+    Ollama: response_metadata["done_reason"]
+    DeepSeek: response_metadata["finish_reason"]
+    """
+    rm = getattr(response, "response_metadata", None) or {}
+    if provider == "local":
+        return rm.get("done_reason", "stop")
+    return rm.get("finish_reason", "stop")
+
+
+def _format_stats(model_name: str, elapsed: float, usage: dict,
+                  finish_reason: str) -> str:
+    """格式化底部统计行。"""
+    return (f"--- {model_name} | {elapsed:.1f}s | "
+            f"Token: prompt={usage['prompt']} completion={usage['completion']} "
+            f"total={usage['total']} | 结束: {finish_reason} ---")
 
 
 # ═══════════════════════════════════════════════════════════
@@ -191,25 +251,28 @@ def build_chat_prompt_template(role: str, custom_system: Optional[str] = None) -
 def build_single_shot_chain(provider: str, role: str, temperature: float,
                             max_tokens: int, device: str = "gpu",
                             custom_system: Optional[str] = None):
-    """构建单次问答 Chain: prompt | model | output_parser
+    """构建单次问答 Chain: prompt | model
+
+    返回 AIMessage (含 response_metadata / usage_metadata)，调用方自行提取 content 和 token 用量。
 
     LangChain 等价于 Week03 的 single_shot() 完整流程。
     """
     prompt = build_prompt_template(role, custom_system)
     model = get_model(provider, temperature, max_tokens, device)
-    return prompt | model | StrOutputParser()
+    return prompt | model
 
 
 def build_chat_chain(provider: str, role: str, temperature: float,
                      max_tokens: int, device: str = "gpu",
                      custom_system: Optional[str] = None):
-    """构建多轮对话 Chain: prompt | model | output_parser
+    """构建多轮对话 Chain: prompt | model
 
+    返回 AIMessage (含 response_metadata / usage_metadata)，调用方自行提取 content 和 token 用量。
     Prompt 中包含 MessagesPlaceholder("history") 用于承载对话历史。
     """
     prompt = build_chat_prompt_template(role, custom_system)
     model = get_model(provider, temperature, max_tokens, device)
-    return prompt | model | StrOutputParser()
+    return prompt | model
 
 
 # ═══════════════════════════════════════════════════════════
@@ -520,17 +583,30 @@ def single_shot_lc(
 
     try:
         if stream:
+            # ── 流式输出 ──
             print("[A] ", end="")
             full_text = ""
+            last_chunk = None
             for chunk in chain.stream({"question": question}):
-                print(chunk, end="", flush=True)
-                full_text += chunk
+                text = chunk.content if isinstance(chunk.content, str) else ""
+                if text:
+                    print(text, end="", flush=True)
+                full_text += text
+                last_chunk = chunk
             print()
             elapsed = time.perf_counter() - t0
             content = full_text
+            # 从最后一块提取 token 用量 (Ollama / DeepSeek 在最后 chunk 中携带)
+            usage = _extract_usage(last_chunk, provider) if last_chunk else \
+                {"prompt": 0, "completion": 0, "total": 0}
+            finish = _extract_finish_reason(last_chunk, provider) if last_chunk else "stop"
         else:
-            content = chain.invoke({"question": question})
+            # ── 非流式输出 ──
+            response = chain.invoke({"question": question})
             elapsed = time.perf_counter() - t0
+            content = response.content if hasattr(response, "content") else str(response)
+            usage = _extract_usage(response, provider)
+            finish = _extract_finish_reason(response, provider)
 
             print("\n" + "=" * 60)
             print("  [回答]")
@@ -540,10 +616,7 @@ def single_shot_lc(
         if not no_echo:
             print()
             print("-" * 60)
-            print(f"  后端: {info.get('label', provider)}  |  "
-                  f"模型: {info.get('model', '?')}  |  "
-                  f"耗时: {elapsed:.1f}s  |  "
-                  f"字符数: {len(content)}")
+            print(_format_stats(info.get("model", "?"), elapsed, usage, finish))
             print("-" * 60)
 
         if save:
@@ -625,9 +698,6 @@ def interactive_session_lc(
                                temperature, max_tokens)
             continue
 
-        # --- 追加用户消息到 history ---
-        history.append(HumanMessage(content=user_input))
-
         # --- 重建 chain (反映当前的 provider/device/role) ---
         chain = build_chat_chain(provider, role, temperature, max_tokens,
                                  device, system)
@@ -636,42 +706,48 @@ def interactive_session_lc(
         t0 = time.perf_counter()
         try:
             if stream:
+                # ── 流式输出 ──
                 print(f"[{session_stats['turns'] + 1}] [A] ", end="")
                 full_text = ""
+                last_chunk = None
                 for chunk in chain.stream({
                     "history": history,
                     "question": user_input,
                 }):
-                    print(chunk, end="", flush=True)
-                    full_text += chunk
+                    text = chunk.content if isinstance(chunk.content, str) else ""
+                    if text:
+                        print(text, end="", flush=True)
+                    full_text += text
+                    last_chunk = chunk
                 print()
                 elapsed = time.perf_counter() - t0
                 content = full_text
+                usage = _extract_usage(last_chunk, provider) if last_chunk else \
+                    {"prompt": 0, "completion": 0, "total": 0}
+                finish = _extract_finish_reason(last_chunk, provider) if last_chunk else "stop"
             else:
-                content = chain.invoke({
+                # ── 非流式输出 ──
+                response = chain.invoke({
                     "history": history,
                     "question": user_input,
                 })
                 elapsed = time.perf_counter() - t0
+                content = response.content if hasattr(response, "content") else str(response)
+                usage = _extract_usage(response, provider)
+                finish = _extract_finish_reason(response, provider)
 
                 print(f"\n[{session_stats['turns'] + 1}] [A]")
                 print("-" * 40)
                 print(content)
 
-            # --- 追加 AI 回复到 history ---
+            # --- 模型调用成功后再写入本轮历史，避免当前问题在 prompt 中重复出现 ---
+            history.append(HumanMessage(content=user_input))
             history.append(AIMessage(content=content))
 
             if not no_echo:
-                if stream:
-                    print(f"--- 耗时: {elapsed:.1f}s | 字符数: {len(content)} ---")
-                else:
-                    print(f"--- {info.get('model', '?')} | {elapsed:.1f}s | "
-                          f"字符数: {len(content)} ---")
+                print(_format_stats(info.get("model", "?"), elapsed, usage, finish))
 
         except Exception as e:
-            # 失败时移除用户消息, 避免 history 污染
-            if history and isinstance(history[-1], HumanMessage):
-                history.pop()
             _handle_langchain_error(e, provider)
             continue
 

@@ -1,0 +1,19 @@
+# ============================================================
+#  CLI 中文问答助手 — 项目依赖
+# ============================================================
+#  安装: pip install -r requirements.txt
+#  检查缺失: pip list | findstr /R "requests langchain"
+# ============================================================
+
+# ── Week03 原始版本 (test.py, cloud_api_demo.py, qa_assistant.py) ──
+# 直接通过 HTTP 请求调用 Ollama / DeepSeek API
+requests>=2.28.0
+
+# ── Week04 LangChain 重构版 (qa_assistant_lc.py, langchain_smoke_test.py) ──
+langchain-core>=1.0.0
+langchain-ollama>=1.0.0
+langchain-deepseek>=1.0.0
+
+# ── 外部服务 (无需 pip 安装) ──
+# Ollama:  https://ollama.com/download  →  ollama pull llama3.2:1b  →  ollama serve
+# DeepSeek API Key: 配置在项目根目录 config.py 中 (已加入 .gitignore)

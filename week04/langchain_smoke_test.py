@@ -46,45 +46,53 @@ def check(label: str, condition: bool, detail: str = ""):
 #  Test 1: 依赖检查
 # ═══════════════════════════════════════════════════════════
 
-def test_imports():
+def test_imports() -> bool:
     print("\n" + "=" * 60)
     print("  Test 1: LangChain 依赖检查")
     print("=" * 60)
+
+    required_ok = True
 
     try:
         import langchain_core
         check("langchain_core", True, f"v{langchain_core.__version__}")
     except Exception as e:
+        required_ok = False
         check("langchain_core", False, str(e))
 
     try:
         import langchain_ollama
         check("langchain_ollama", True, f"v{langchain_ollama.__version__}")
     except Exception as e:
+        required_ok = False
         check("langchain_ollama", False, str(e))
 
     try:
         import langchain_deepseek
         check("langchain_deepseek", True, f"v{langchain_deepseek.__version__}")
     except Exception as e:
+        required_ok = False
         check("langchain_deepseek", False, str(e))
 
     try:
         from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
         check("Messages (System/Human/AI)", True)
     except Exception as e:
+        required_ok = False
         check("Messages (System/Human/AI)", False, str(e))
 
     try:
         from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
         check("ChatPromptTemplate + MessagesPlaceholder", True)
     except Exception as e:
+        required_ok = False
         check("ChatPromptTemplate + MessagesPlaceholder", False, str(e))
 
     try:
         from langchain_core.output_parsers import StrOutputParser
         check("StrOutputParser", True)
     except Exception as e:
+        required_ok = False
         check("StrOutputParser", False, str(e))
 
     try:
@@ -94,6 +102,8 @@ def test_imports():
               "API_KEY 已配置" if has_key else "API_KEY 未设置或为占位值")
     except Exception as e:
         check("config.API_KEY", False, str(e))
+
+    return required_ok
 
 
 # ═══════════════════════════════════════════════════════════
@@ -428,7 +438,15 @@ def main():
     print("=" * 60)
     print(f"  时间: {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
-    test_imports()
+    imports_ok = test_imports()
+    if not imports_ok:
+        print(f"\n{'=' * 60}")
+        print(f"  结果: {PASS} PASS, {FAIL} FAIL")
+        print(f"{'=' * 60}")
+        print("\n  提示:")
+        print("    - 依赖测试失败: pip install -r requirements.txt")
+        return 1
+
     test_prompt_template()
 
     if args.quick:
@@ -453,7 +471,7 @@ def main():
         print("\n  提示:")
         print("    - 本地测试失败: 确认 'ollama serve' 已启动且 'llama3.2:1b' 已拉取")
         print("    - 云端测试失败: 确认 config.py 中 API_KEY 有效")
-        print("    - 依赖测试失败: pip install langchain langchain-ollama langchain-deepseek")
+        print("    - 依赖测试失败: pip install -r requirements.txt")
         return 1
 
     print("  所有测试通过! 可以运行 qa_assistant_lc.py 了。")

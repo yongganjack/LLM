@@ -76,15 +76,16 @@ chat_prompt = ChatPromptTemplate.from_messages([
 
 ### 2.4 LCEL (LangChain Expression Language)
 
-使用 `|` 管道符串联组件：
+使用 `|` 管道符串联组件。主脚本为了读取 `AIMessage` / `AIMessageChunk` 中的 token 元数据，实际保留 `prompt | model`，再由调用方提取 `content`；如果只需要纯文本，也可以追加 `StrOutputParser()`：
 
 ```python
-chain = prompt | model | StrOutputParser()
-result = chain.invoke({"question": "什么是机器学习？"})
+chain = prompt | model
+response = chain.invoke({"question": "什么是机器学习？"})
+result = response.content
 
 # 流式
 for chunk in chain.stream({"question": "什么是机器学习？"}):
-    print(chunk, end="", flush=True)
+    print(chunk.content, end="", flush=True)
 ```
 
 ## 3. 重构前后对比
@@ -107,16 +108,21 @@ for chunk in chain.stream({"question": "什么是机器学习？"}):
 
 ```
 week04/
-├── qa_assistant_lc.py          # LangChain 重构版主脚本 (~450行)
+├── qa_assistant_lc.py          # LangChain 重构版主脚本 (866行)
 ├── langchain_smoke_test.py     # 冒烟测试 (依赖 + 连通性 + LCEL)
 └── week04_demo.md              # 本文档
 ```
+
+项目根目录还提供 `requirements.txt`，作为 Week03/Week04 共用依赖入口。
 
 ## 5. 运行命令
 
 ### 冒烟测试
 
 ```bash
+# 安装依赖
+pip install -r requirements.txt
+
 # 全部测试
 python week04/langchain_smoke_test.py
 
@@ -207,7 +213,7 @@ python week04/qa_assistant_lc.py -p cloud --stream --role coder
 
 | 问题 | 原因 | 解决方案 |
 |------|------|----------|
-| ModuleNotFoundError (langchain_core 等) | LangChain 包未安装 | `pip install langchain langchain-ollama langchain-deepseek` |
+| ModuleNotFoundError (langchain_core 等) | LangChain 包未安装 | `pip install -r requirements.txt` |
 | Ollama 服务未启动 | 本地 Ollama 未运行 | `ollama serve` 启动服务 |
 | 模型未找到 (llama3.2:1b) | 模型未拉取 | `ollama pull llama3.2:1b` |
 | DeepSeek API Key 缺失/无效 | config.py 未配置 | 在 [platform.deepseek.com](https://platform.deepseek.com) 获取 Key |
@@ -219,7 +225,7 @@ python week04/qa_assistant_lc.py -p cloud --stream --role coder
 | 文件 | 行数 | 说明 |
 |------|------|------|
 | `week03/qa_assistant.py` | 933 行 | 手写 HTTP 请求 + SSE/JSON-lines 解析 |
-| `week04/qa_assistant_lc.py` | ~450 行 | LangChain 封装, 代码量减少 ~50% |
+| `week04/qa_assistant_lc.py` | 866 行 | LangChain 封装, 并保留交互指令、保存、统计与 token 元数据展示 |
 
 减少的代码主要集中在:
 - 手写 `_build_cloud_payload()` / `_build_local_payload()` (~30行)
