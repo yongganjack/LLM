@@ -551,20 +551,25 @@ def single_shot_lc(
             print("[A] ", end="")
             full_text = ""
             last_chunk = None
+            last_usage_chunk = None  # ★ 追踪最后一个携带 usage_metadata 的 chunk
             for chunk in chain.stream({"question": question}):
                 text = chunk.content if isinstance(chunk.content, str) else ""
                 if text:
                     print(text, end="", flush=True)
                 full_text += text
                 last_chunk = chunk
+                if getattr(chunk, "usage_metadata", None):
+                    last_usage_chunk = chunk
             print()
             elapsed = time.perf_counter() - t0
             content = full_text
             # 流式结束后解析（不影响已显示内容）
             parsed = parse_structured_response(content)
-            usage = _extract_usage(last_chunk, provider) if last_chunk else \
+            # 优先使用携带 token 用量的 chunk (流式模式下可能在倒数第二个 chunk)
+            stats_chunk = last_usage_chunk or last_chunk
+            usage = _extract_usage(stats_chunk, provider) if stats_chunk else \
                 {"prompt": 0, "completion": 0, "total": 0}
-            finish = _extract_finish_reason(last_chunk, provider) if last_chunk else "stop"
+            finish = _extract_finish_reason(stats_chunk, provider) if stats_chunk else "stop"
         else:
             # ── 非流式输出 ──
             response = chain.invoke({"question": question})
@@ -677,6 +682,7 @@ def interactive_session_lc(
                 print(f"[{session_stats['turns'] + 1}] [A] ", end="")
                 full_text = ""
                 last_chunk = None
+                last_usage_chunk = None  # ★ 追踪最后一个携带 usage_metadata 的 chunk
                 for chunk in chain.stream({
                     "history": history,
                     "question": user_input,
@@ -686,12 +692,16 @@ def interactive_session_lc(
                         print(text, end="", flush=True)
                     full_text += text
                     last_chunk = chunk
+                    if getattr(chunk, "usage_metadata", None):
+                        last_usage_chunk = chunk
                 print()
                 elapsed = time.perf_counter() - t0
                 content = full_text
-                usage = _extract_usage(last_chunk, provider) if last_chunk else \
+                # 优先使用携带 token 用量的 chunk (流式模式下可能在倒数第二个 chunk)
+                stats_chunk = last_usage_chunk or last_chunk
+                usage = _extract_usage(stats_chunk, provider) if stats_chunk else \
                     {"prompt": 0, "completion": 0, "total": 0}
-                finish = _extract_finish_reason(last_chunk, provider) if last_chunk else "stop"
+                finish = _extract_finish_reason(stats_chunk, provider) if stats_chunk else "stop"
 
                 # ★ Week05 增强：流式结束后解析，提取干净的 answer
                 parsed = parse_structured_response(content)
