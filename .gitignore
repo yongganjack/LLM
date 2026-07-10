@@ -3,6 +3,7 @@ config.py
 
 # IDE
 .idea/
+.vscode/
 
 # Python
 __pycache__/
@@ -15,6 +16,18 @@ build/
 venv/
 .venv/
 
+# Agent run logs
+week07/runs/
+
 # OS
 .DS_Store
 Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Temporary files
+*.tmp
+*.swp
+*.swo
+*~
